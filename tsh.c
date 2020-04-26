@@ -74,6 +74,11 @@ void sigint_handler(int sig);
 
 /* Safe version of the non-capitalized functions */
 pid_t Fork(void);
+void Setpgid(pid_t pid, pid_t pgid);
+void Kill(pid_t pid, int sig);
+void Sigemptyset(sigset_t* set);
+void Sigaddset(sigset_t* set, int signum);
+void Sigprocmask(int how, const sigset_t* set, sigset_t *oldset);
 
 /* Here are helper routines that we've provided for you */
 int parseline(const char *cmdline, char **argv);
@@ -180,8 +185,6 @@ void eval(char *cmdline)
     pid_t pid;
     char* argv[MAXARGS];
     char buf[MAXLINE];
-    // int status;
-    // sigset_t mask_all, prev_all;
     sigset_t mask_chld, prev_chld;
 
     strcpy(buf, cmdline);
@@ -194,16 +197,15 @@ void eval(char *cmdline)
     if(!builtin_cmd(argv))
     {
         // initializing masks
-        sigemptyset(&mask_chld);
-        sigaddset(&mask_chld, SIGCHLD);
-        // sigfillset(&mask_all);
+        Sigemptyset(&mask_chld);
+        Sigaddset(&mask_chld, SIGCHLD);
 
-        sigprocmask(SIG_BLOCK, &mask_chld, &prev_chld);
+        Sigprocmask(SIG_BLOCK, &mask_chld, &prev_chld);
         if((pid = Fork())==0)
         {
             // unblocking SIGCHLD in child
-            sigprocmask(SIG_SETMASK, &prev_chld, NULL);
-            setpgid(0,0); // setting pgid
+            Sigprocmask(SIG_SETMASK, &prev_chld, NULL);
+            Setpgid(0,0); // setting pgid different from our shell
             // Child running job
             if(execve(argv[0], argv, environ) < 0)
             {
@@ -219,16 +221,17 @@ void eval(char *cmdline)
             // adding job to job list
             addjob(jobs, pid, FG, cmdline);
             // unblocking SIGCHLD
-            sigprocmask(SIG_SETMASK, &prev_chld, NULL);
+            Sigprocmask(SIG_SETMASK, &prev_chld, NULL);
             waitfg(pid);
         }
         else
         {
             addjob(jobs, pid, BG, cmdline);
+            Sigprocmask(SIG_SETMASK, &prev_chld, NULL);
             jid = pid2jid(pid);
-            sigprocmask(SIG_SETMASK, &prev_chld, NULL);
             printf("[%d] (%d) %s", jid, pid, cmdline);
         }
+
     }
     return;
 }
@@ -298,7 +301,6 @@ int builtin_cmd(char **argv)
 {
     if(strcmp(argv[0], "quit") == 0)
     {
-        // TODO might need to do some clean up here (for bg processes)
         exit(0);
     }
     else if(strcmp(argv[0], "jobs") == 0)
@@ -329,9 +331,9 @@ void do_bgfg(char **argv)
     }
 
     // checking valid second argument
-    if(!(isdigit(argv[1][0]) || argv[1][0] == '&'))
+    if(!(isdigit(argv[1][0]) || argv[1][0] == '%'))
     {
-        printf("%s command must be a PID or %%jobid\n", argv[0]);
+        printf("%s: argument must be a PID or %%jobid\n", argv[0]);
         return;
     }
 
@@ -358,12 +360,12 @@ void do_bgfg(char **argv)
     {
         job->state = BG; // change status
         printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
-        kill(-job->pid, SIGCONT); // continue process
+        Kill(-job->pid, SIGCONT); // continue process
     }
     else if (strcmp(argv[0], "fg") == 0)
     {
         job->state = FG;  // change status
-        kill(-job->pid, SIGCONT); // continue the process
+        Kill(-job->pid, SIGCONT); // continue the process
         waitfg(job->pid); // wait for completion since now in FG
     }
     return;
@@ -388,18 +390,6 @@ void waitfg(pid_t pid)
     return;
 }
 
-/*
- * Fork - error handle wrapped version of fork
- */
-pid_t Fork(void)
-{
-    pid_t pid;
-
-    if((pid = fork()) < 0)
-        unix_error("Fork error");
-    return pid;
-}
-
 /*****************
  * Signal handlers
  *****************/
@@ -413,26 +403,20 @@ pid_t Fork(void)
  */
 void sigchld_handler(int sig)
 {
-
     int old_errno = errno;
     int status, jid;
     pid_t pid;
-    // sigset_t mask_all, prev_all;
-    //
-    // sigfillset(&mask_all);
-    // sigprocmask(SIG_BLOCK, &mask_all, &prev_all);
 
     vprintf("sigchld_handler: entering\n");
     // waitpid returns only when the child is stopped or terminated
     while((pid=waitpid(-1, &status, WNOHANG|WUNTRACED)) > 0) // reaping children
     {
         jid = pid2jid(pid);
-
         // checking different statuses
         // true if child terminated normally
         if(WIFEXITED(status))
         {
-            deletejob(jobs, pid); // TODO might need to block this
+            deletejob(jobs, pid);
             vprintf("sigchld_handler: Job [%d] (%d) deleted\n", jid,(int)pid);
             vprintf("sigchld_handler: Job [%d] (%d) terminates OK (status %d)\n",
                     jid,(int)pid, status);
@@ -441,7 +425,7 @@ void sigchld_handler(int sig)
         // if the child was terminated from a signal
         else if(WIFSIGNALED(status))
         {
-            deletejob(jobs, pid); // TODO might need to block this
+            deletejob(jobs, pid);
             vprintf("sigchld_handler: Job [%d] (%d) deleted\n", jid,(int)pid);
             printf("Job [%d] (%d) terminated by signal %d\n", jid, (int)pid,
                     WTERMSIG(status));
@@ -450,21 +434,14 @@ void sigchld_handler(int sig)
         // if the child was stopped by a signal
         else if(WIFSTOPPED(status))
         {
-            getjobjid(jobs, pid)->state = ST; // updating job status
+            getjobpid(jobs, pid)->state = ST; // updating job status
             printf("Job [%d] (%d) stopped  by signal %d\n", jid, (int)pid,
-                    WTERMSIG(status));
+                    WSTOPSIG(status));
         }
     }
 
-    // // if there are no children, then waitpid returns -1 and sets errno to
-    // // ECHILD. Any other value of errno is an error.
-    // if(errno != ECHILD) {
-    //     unix_error("waitpid error\n");
-    // }
-
     errno = old_errno;
     vprintf("sigchld_handler: exiting\n");
-    // sigprocmask(SIG_SETMASK, &prev_all, NULL);
 }
 
 /*
@@ -480,7 +457,7 @@ void sigint_handler(int sig)
     // checking if the pid is valid
     if(pid != 0)
     {
-        kill(-pid, sig); // killing all processes in the same group
+        Kill(-pid, sig); // killing all processes in the same group
         vprintf("sigint_handler: Job (%d) killed\n", (int)pid);
     }
 
@@ -503,7 +480,7 @@ void sigtstp_handler(int sig)
     if(pid != 0)
     {
         jid = pid2jid(pid);
-        kill(-pid, sig); // killing all processes in the same group
+        Kill(-pid, sig); // killing all processes in the same group
         vprintf("sigstp_handler: Job [%d] (%d) stopped\n", jid, (int)pid);
     }
 
@@ -711,7 +688,7 @@ handler_t *Signal(int signum, handler_t *handler)
     struct sigaction action, old_action;
 
     action.sa_handler = handler;
-    sigemptyset(&action.sa_mask); /* block sigs of type being handled */
+    Sigemptyset(&action.sa_mask); /* block sigs of type being handled */
     action.sa_flags = SA_RESTART; /* restart syscalls if possible */
 
     if (sigaction(signum, &action, &old_action) < 0)
@@ -727,4 +704,46 @@ void sigquit_handler(int sig)
 {
     printf("Terminating after receipt of SIGQUIT signal\n");
     exit(1);
+}
+
+
+/***************************************
+ * System call error handled functions *
+ ***************************************/
+
+/*
+ * Fork - error handle wrapped version of fork
+ */
+pid_t Fork(void)
+{
+    pid_t pid;
+
+    if((pid = fork()) < 0)
+        unix_error("fork error\n");
+    return pid;
+}
+
+void Setpgid(pid_t pid, pid_t pgid)
+{
+    if(setpgid(pid, pgid) < 0)
+        unix_error("setpgid error\n");
+}
+void Kill(pid_t pid, int sig)
+{
+    if(kill(pid, sig) < 0)
+        unix_error("kill error\n");
+}
+void Sigemptyset(sigset_t* set)
+{
+    if(sigemptyset(set) < 0)
+        app_error("sigemptyset error\n");
+}
+void Sigaddset(sigset_t* set, int signum){
+    if(sigaddset(set, signum) < 0)
+        app_error("sigaddset error\n");
+}
+void Sigprocmask(int how, const sigset_t* set, sigset_t *oldset)
+{
+    if(sigprocmask(how, set, oldset) < 0)
+        app_error("sigprocmask error\n");
 }
