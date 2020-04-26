@@ -203,10 +203,7 @@ void eval(char *cmdline)
         {
             // unblocking SIGCHLD in child
             sigprocmask(SIG_SETMASK, &prev_chld, NULL);
-            // setting pgid
-            setpgid(0,0);
-            // vprintf("Executing %s: pid: %d, pgid: %d\n",
-            //         argv[0], (int)getpid(), (int)getpgid(pid));
+            setpgid(0,0); // setting pgid
             // Child running job
             if(execve(argv[0], argv, environ) < 0)
             {
@@ -416,34 +413,37 @@ pid_t Fork(void)
  */
 void sigchld_handler(int sig)
 {
-    vprintf("sigchld_handler: entering\n");
+
     int old_errno = errno;
-    int status, jobid;
+    int status, jid;
     pid_t pid;
     // sigset_t mask_all, prev_all;
+    //
     // sigfillset(&mask_all);
+    // sigprocmask(SIG_BLOCK, &mask_all, &prev_all);
 
+    vprintf("sigchld_handler: entering\n");
     // waitpid returns only when the child is stopped or terminated
     while((pid=waitpid(-1, &status, WNOHANG|WUNTRACED)) > 0) // reaping children
     {
-        jobid = pid2jid(pid);
+        jid = pid2jid(pid);
 
         // checking different statuses
         // true if child terminated normally
         if(WIFEXITED(status))
         {
             deletejob(jobs, pid); // TODO might need to block this
-            vprintf("sigchld_handler: Job [%d] (%d) deleted\n", jobid,(int)pid);
+            vprintf("sigchld_handler: Job [%d] (%d) deleted\n", jid,(int)pid);
             vprintf("sigchld_handler: Job [%d] (%d) terminates OK (status %d)\n",
-                    jobid,(int)pid, status);
+                    jid,(int)pid, status);
         }
 
         // if the child was terminated from a signal
         else if(WIFSIGNALED(status))
         {
             deletejob(jobs, pid); // TODO might need to block this
-            vprintf("sigchld_handler: Job [%d] (%d) deleted\n", jobid,(int)pid);
-            printf("Job [%d] (%d) terminated by signal %d\n", jobid, (int)pid,
+            vprintf("sigchld_handler: Job [%d] (%d) deleted\n", jid,(int)pid);
+            printf("Job [%d] (%d) terminated by signal %d\n", jid, (int)pid,
                     WTERMSIG(status));
         }
 
@@ -451,18 +451,20 @@ void sigchld_handler(int sig)
         else if(WIFSTOPPED(status))
         {
             getjobjid(jobs, pid)->state = ST; // updating job status
-            printf("Job [%d] (%d) stopped  by signal %d\n", jobid, (int)pid,
+            printf("Job [%d] (%d) stopped  by signal %d\n", jid, (int)pid,
                     WTERMSIG(status));
         }
     }
 
-    // if there are no children, then waitpid returns -1 and sets errno to
-    // ECHILD. Any other value of errno is an error.
-    if(errno != ECHILD)
-        unix_error("waitpid error\n");
-    errno = old_errno;
+    // // if there are no children, then waitpid returns -1 and sets errno to
+    // // ECHILD. Any other value of errno is an error.
+    // if(errno != ECHILD) {
+    //     unix_error("waitpid error\n");
+    // }
 
+    errno = old_errno;
     vprintf("sigchld_handler: exiting\n");
+    // sigprocmask(SIG_SETMASK, &prev_all, NULL);
 }
 
 /*
