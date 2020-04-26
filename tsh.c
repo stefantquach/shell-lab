@@ -40,7 +40,7 @@
  * At most 1 job can be in the FG state.
  */
 
-/* Macros */
+/* Macro for verbose printing */
 #define vprintf(...) if(verbose) printf(__VA_ARGS__)
 
 /* Global variables */
@@ -723,25 +723,44 @@ pid_t Fork(void)
     return pid;
 }
 
+/*
+ * Setpgid - error handle wrapped version of setpgid
+ */
 void Setpgid(pid_t pid, pid_t pgid)
 {
     if(setpgid(pid, pgid) < 0)
         unix_error("setpgid error\n");
 }
+
+/*
+ * Kill - error handle wrapped version of kill
+ */
 void Kill(pid_t pid, int sig)
 {
     if(kill(pid, sig) < 0)
         unix_error("kill error\n");
 }
+
+/*
+ * Sigemptyset - error handle wrapped version of sigemptyset
+ */
 void Sigemptyset(sigset_t* set)
 {
     if(sigemptyset(set) < 0)
         app_error("sigemptyset error\n");
 }
+
+/*
+ * Sigaddset - error handle wrapped version of sigaddset
+ */
 void Sigaddset(sigset_t* set, int signum){
     if(sigaddset(set, signum) < 0)
         app_error("sigaddset error\n");
 }
+
+/*
+ * Sigprocmask - error handle wrapped version of sigprocmask
+ */
 void Sigprocmask(int how, const sigset_t* set, sigset_t *oldset)
 {
     if(sigprocmask(how, set, oldset) < 0)
