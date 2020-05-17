@@ -1,3 +1,10 @@
+# Malloc lab
+This was written for CSE361S: Introduction to System Software at Washington University
+in St. Louis. This lab implements a limited functionality shell, called the Tiny
+shell.
+
+Below is the original documentation from the assignment
+```
 ################
 CS:APP Shell Lab
 ################
@@ -20,4 +27,4 @@ myspin.c	# Takes argument <n> and spins for <n> seconds
 mysplit.c	# Forks a child that spins for <n> seconds
 mystop.c        # Spins for <n> seconds and sends SIGTSTP to itself
 myint.c         # Spins for <n> seconds and sends SIGINT to itself
-
+```
