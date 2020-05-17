@@ -1,4 +1,4 @@
-# Malloc lab
+# Shell lab
 This was written for CSE361S: Introduction to System Software at Washington University
 in St. Louis. This lab implements a limited functionality shell, called the Tiny
 shell.
